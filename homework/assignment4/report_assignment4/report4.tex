@@ -1,0 +1,101 @@
+\documentclass[11pt, oneside]{article}   	% use "amsart" instead of "article" for AMSLaTeX format
+\usepackage{geometry}                		% See geometry.pdf to learn the layout options. There are lots.
+\geometry{letterpaper}                   		% ... or a4paper or a5paper or ... 
+%\geometry{landscape}                		% Activate for rotated page geometry
+%\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}				% Use pdf, png, jpg, or eps§ with pdflatex; use eps in DVI mode
+								% TeX will automatically convert eps --> pdf in pdflatex	
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage[linesnumbered,boxed,ruled,commentsnumbered]{algorithm2e}
+\usepackage{listings}
+%SetFonts
+
+%SetFonts
+
+
+\title{Convex Optimization Homework 5, Assignment 4}
+\author{Dinghuai Zhang, School of Mathematical Sciences, 1600013525}
+\date{}							% Activate to display a given date or no date
+
+\begin{document}
+\maketitle
+\section{Problem Settings}
+\begin{equation}
+\min_x \frac{1}{2}\Vert Ax-b\Vert^2_2+\mu\Vert x\Vert_1
+\end{equation}
+It's a standard LASSO problem without constraints.
+\subsection{Data Building}
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+n = 1024;
+m = 512;
+A = randn(m,n);
+u = sprandn(n,1,0.1);
+b = A*u;
+mu = 1e-3;
+x0 = rand(n,1);
+\end{lstlisting}
+
+\section{Solve the problem using Adagrad}
+If we denote gradient of $x$ as $g$, in each iteration we compute:
+\begin{align} 
+r & \gets r + g \odot g \\ 
+x & \gets x  - \left(\frac{\epsilon}{\delta + \sqrt{r}} \odot g \right) 
+ \end{align}
+
+\section{Solve the problem using Adam}
+In each iteration we compute:
+\begin{align} 
+g & \in \partial f \left( x  \right) \\ 
+s & = \rho_1 s + (1-\rho_1^{\textrm{iter}})g\\
+r & = \rho_2 r + (1-\rho_2^{\textrm{iter}}) g \odot g\\
+\hat{s} & = \frac{s}{1 - \rho_1}\\
+\hat{r} & = \frac{r}{1 - \rho_2}\\
+x & = x  - \frac{\epsilon \hat{s}}{\delta + \sqrt{\hat{r}}}
+\end{align}
+
+\section{Solve the problem using RMSProp}
+In each iteration we compute:
+\begin{align} 
+g & \in \partial f(x)\\
+r & = \rho r  + (1-\rho) g \odot g\\
+v &= - \frac{\epsilon}{\sqrt{r}}\odot g\\
+x & = x  + v
+\end{align}
+
+\section{Solve the problem using Momentum}
+In each iteration we compute:
+\begin{align} 
+g & \in \partial f(x)\\
+v & = \alpha v - \epsilon g\\
+x & = x  + v
+\end{align}
+
+\section{Numerical results and interpretations}
+We can see the cpu time, the optimal value and error with cvx mosek in the tabluation:
+
+\begin{table}[H]
+  \centering
+  \begin{tabular}{c|ccc}
+  \hline
+  Method&cpu time/s&error with cvx-mosek&optimal value\\
+  \hline
+  cvx-call-mosek&0.86&0.00e+0&7.2844399533e-02\\
+  adagrad&0.53&3.70e-6&7.2844392983e-02\\
+  adam&0.31&3.19e-6&7.2844342800e-02\\
+  rmsprop&0.39&5.07e-6&7.2844385600e-02\\
+  momentum&0.44&3.74e-6&7.2844389612e-02\\
+  \hline
+  \end{tabular}
+\end{table}
+
+
+We can see that Adam is the strongest algorithm among these. It compose the tricks from other optimization methods.
+
+\end{document}  

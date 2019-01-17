@@ -1,0 +1,310 @@
+\documentclass[11pt, oneside]{article}   	% use "amsart" instead of "article" for AMSLaTeX format
+\usepackage{geometry}                		% See geometry.pdf to learn the layout options. There are lots.
+\geometry{letterpaper}                   		% ... or a4paper or a5paper or ... 
+%\geometry{landscape}                		% Activate for rotated page geometry
+%\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}				% Use pdf, png, jpg, or eps§ with pdflatex; use eps in DVI mode
+								% TeX will automatically convert eps --> pdf in pdflatex	
+\usepackage{amssymb}
+\usepackage{amsmath}
+
+\usepackage{listings}
+%SetFonts
+
+%SetFonts
+
+
+\title{Convex Optimization Homework 5}
+\author{Dinghuai Zhang, School of Mathematical Sciences, 1600013525}
+\date{}							% Activate to display a given date or no date
+
+\begin{document}
+\maketitle
+\section{Problem Settings}
+\begin{equation}
+\min_x \frac{1}{2}\Vert Ax-b\Vert^2_2+\mu\Vert x\Vert_1
+\end{equation}
+It's a standard LASSO problem without constraints.
+\subsection{Data Building}
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+n = 1024;
+m = 512;
+A = randn(m,n);
+u = sprandn(n,1,0.1);
+b = A*u;
+mu = 1e-3;
+x0 = rand(n,1);
+\end{lstlisting}
+
+\section{Solve the problem using CVX calling Gurobi and Mosek}
+
+\subsection{Solving the problem using Mosek in CVX}
+The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [ x1,out1 ] = l1_cvx_mosek(x0, A, b, mu, opts1)
+[m,n] = size(A);
+cvx_solver mosek
+cvx_begin
+    variable x(n)
+    minimize (0.5*square_pos(norm(A*x-b))+mu*norm(x,1))
+cvx_end
+x1 = x;
+out1 = cvx_optval;
+end
+\end{lstlisting}
+
+The result is 
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+Optimizer summary
+  Optimizer                 -                        time: 0.59    
+    Interior-point          - iterations : 8         time: 0.54   
+Optimal value (cvx_optval): +0.0746955  
+\end{lstlisting}
+
+\subsection{Solving the problem using Gurobi in CVX}
+The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, cvx_optval]=l1_cvx_gurobi(x0, A, b, mu, opts2)
+[n, ~] = size(x0);
+cvx_solver gurobi
+cvx_begin 
+    variable x(n)
+    minimize (mu*norm(x,1) + 0.5*norm(A*x-b))    
+cvx_end
+end
+\end{lstlisting}
+
+The result is 
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+Barrier solved model in 13 iterations and 1.04 seconds
+Optimal objective 7.46954736e-02 
+\end{lstlisting}
+
+\section{Solve the problem by directly calling Gurobi and Mosek}
+The original problem can be reformulated as:
+    \begin{align}
+    \min &\frac{1}{2}\Vert Ax-b\Vert^2_2+\mu1^Tt \\
+     s.t.&  x\preceq t\\
+    \quad -&t\preceq x
+    \end{align}
+which is (when $b = Au$):
+    \begin{align}
+    \min &\frac{1}{2}\Vert Ay\Vert^2_2+\mu1^Tt \\
+     s.t.&  y+u\preceq t\\
+    \quad -&t\preceq y+u
+    \end{align}
+In this way we can call mosek and gurobi directly.
+
+\subsection{Solve the problem by directly calling Mosek}
+The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, cvx_optval]=l1_mosek(x0, A, b, mu, opts3)
+[~,n] = size(A);
+q = [0.5*(A'*A), zeros(n,n);zeros(n,n),zeros(n,n)];
+c = [zeros(n,1);mu*ones(n,1)];
+a = [eye(n),eye(n);-eye(n),eye(n)];
+v = A\b;
+blc = [-v;v];
+res = mskqpopt(q,c,a,blc,[],[],[],[],'minimize');
+x = res.sol.itr.xx(1:1024)+v;
+cvx_optval = res.sol.itr.pobjval;
+end
+\end{lstlisting}
+
+The result is 
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+ Optimizer                 -                        time: 1.31    
+    Interior-point          - iterations : 10        time: 1.25    
+ Optimal value (cvx_optval): +0.0746955
+\end{lstlisting}
+
+\subsection{Solve the problem by directly calling Gurobi}
+The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, cvx_optval]=l1_gurobi(x0, A, b, mu, opts4)
+[~,n] = size(A);
+At = [A -A];
+model.Q = 0.5*sparse(At'*At);
+c = mu*ones(2*n,1)- (b'*At)';
+model.obj = c;
+P = eye(2*n);
+model.A = sparse(P);
+l1 = zeros(2*n,1);
+model.rhs = full(l1);
+model.sense = '>';
+params.method = 2;
+res = gurobi(model, params);
+x = res.x(1:n,1)-res.x(n+1:2*n,1);
+cvx_optval = 0.5 * sum_square(A * x - b) + mu * norm(x, 1);
+end
+\end{lstlisting}
+
+The result is 
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+Barrier solved model in 9 iterations and 1.52 seconds
+Optimal objective 7.4696220351e-02
+\end{lstlisting}
+
+\section{Solve the problem with Projection Gradient Algorithm}
+The core iteration step of projection gradient algorithm is:
+\begin{equation}
+x ^ { + } = P _ { C } ( x - t \nabla g ( x ) )
+\end{equation}
+We separate variable $x$ into two parts of $x_{1}, x_{2}$ \textit{s.t.} $x_1\ge0, x_{2}\ge0$ and define $C$ as $\mathbb{R^{+}}_{2n}$.
+In the implementation we start from a large $\mu$ to ensure its convergence. The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+x0 = [max(x0,0); max(-x0,0)];
+[~,n] = size(A);
+pseodumu = mu * 1e5;
+tol = 1e-4;
+alpha_l = 1e-6; 
+alpha_u = 1;    
+alpha = 1e-4;     
+iter = 200;
+Atb = A' * b;
+AtA = A' * A;
+while pseodumu >= mu
+    cur = pseodumu * ones(2*n,1) - [Atb; -Atb];
+    AtAx0 = AtA* (x0(1:n)-x0((n+1):2*n));
+    g0 = [AtAx0;-AtAx0] + cur;
+    x = x0;
+    g = g0;
+    k = 1;
+    while k < iter
+        x0 = x;
+        x = max(x - alpha*g, 0);    
+        g0 = g;
+        AAz = AtA* (x(1:n)-x((n+1):2*n));
+        g = [AAz;-AAz] + cur;
+        y = g - g0;
+        s = x - x0;
+        BB = (s'*s) / (s'*y); 
+        if s'*y <=0
+            alpha = alpha_u;
+        else
+            alpha = max(alpha_l, min(BB, alpha_u));
+        end
+        k = k + 1;
+        if  norm(max(x-g, 0) - x) < tol 
+            break
+        end
+    end
+    pseodumu = pseodumu / 10; 
+end
+x =  x(1:n)-x((n+1):2*n);
+cvx_optval = 0.5*sum_square(A*x - b) + mu*norm(x,1);
+end
+\end{lstlisting}
+
+The result is \textbf{better} and \textbf{faster} than mosek's 7.4695473580e-02 in 1.16s:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+sub-gradient: cpu:  0.46, cvx_optval: 7.4695410841e-02
+\end{lstlisting}
+
+
+\section{Solve the problem with Subgradient Algorithm}
+The sub-gradient algorithm is showed as follows:
+\begin{equation}
+x ^ { ( k ) } = x ^ { ( k - 1 ) } - t _ { k } g ^ { ( k - 1 ) }
+\end{equation}
+where $g^{(k-1)}$ is the sub gradient of object function when $x = x^{(k-1)}$.
+In the implementation we start from a large $\mu$ to ensure its convergence as above. What's more, we use continuation method for step length $\alpha$. The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, cvx_optval]=l1_Subgradient(x0, A, b, mu, opts5)
+pseudomu = 100; 
+iter = 500; 
+tol = 1e-7;
+x = x0;
+
+while pseudomu >= mu
+    k = 1;
+    alpha = 3e-4;
+    while k < iter
+        x0 = x;
+        g = A' * (A * x - b)  + pseudomu * sign(x);
+        if mod(k,50)==0
+            alpha = alpha * 0.9;
+        end
+        x = x - alpha * g;
+        if norm(x0-x) < tol
+            break;
+        end
+        k = k + 1;
+    end
+    pseudomu = pseudomu / 10;
+end
+cvx_optval = 0.5*sum_square(A*x - b) + mu * norm(x,1);
+end
+\end{lstlisting}
+
+The result is \textbf{better} and \textbf{faster} than mosek's 7.4695473580e-02 in 1.16s:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+projectgradient: cpu:  0.11, cvx_optval: 7.4695365639e-02
+\end{lstlisting}
+
+\end{document}  

@@ -1,0 +1,297 @@
+\documentclass[11pt, oneside]{article}   	% use "amsart" instead of "article" for AMSLaTeX format
+\usepackage{geometry}                		% See geometry.pdf to learn the layout options. There are lots.
+\geometry{letterpaper}                   		% ... or a4paper or a5paper or ... 
+%\geometry{landscape}                		% Activate for rotated page geometry
+%\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}				% Use pdf, png, jpg, or eps§ with pdflatex; use eps in DVI mode
+								% TeX will automatically convert eps --> pdf in pdflatex	
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage[linesnumbered,boxed,ruled,commentsnumbered]{algorithm2e}
+\usepackage{listings}
+%SetFonts
+
+%SetFonts
+
+
+\title{Convex Optimization Homework 5, Assignment 2}
+\author{Dinghuai Zhang, School of Mathematical Sciences, 1600013525}
+\date{}							% Activate to display a given date or no date
+
+\begin{document}
+\maketitle
+\section{Problem Settings}
+\begin{equation}
+\min_x \frac{1}{2}\Vert Ax-b\Vert^2_2+\mu\Vert x\Vert_1
+\end{equation}
+It's a standard LASSO problem without constraints.
+\subsection{Data Building}
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+n = 1024;
+m = 512;
+A = randn(m,n);
+u = sprandn(n,1,0.1);
+b = A*u;
+mu = 1e-3;
+x0 = rand(n,1);
+\end{lstlisting}
+
+\section{Solve the problem using gradient method for the smoothed primal problem}
+
+Because the l1 norm is not differentiable, we use gradient methods toward the smoothed version of object function, where we use
+\begin{equation}
+  \phi_{\lambda}(x)=\left\{
+    \begin{aligned}
+      &x^{2}/(2\lambda)\quad&|x|\leq\lambda\\
+      &|x|-\lambda/2\quad& |x|>\lambda
+    \end{aligned}
+    \right.
+\end{equation}
+to substitute l1 norm. Then the gradient is:
+\begin{equation}
+  grad=A^{T}(Ax-b)+\mu\left\{
+    \begin{aligned}
+      &x/\lambda\quad&|x|\leq\lambda\\
+      &sign(x)\quad& |x|>\lambda
+    \end{aligned}
+    \right.
+\end{equation}
+The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, out] = l1_grad_smooth(x0, A, b, mu, opts)
+% use smooth() to replace 1-norm
+% smooth(x) = x^2/(2*lambda) if |x|<lambda
+%           = |x|-lambda/2   if |x|>=lambda
+[n, ~] = size(x0);
+AtA = A' * A;
+Atb = A' * b;
+pseudomu = 10000*mu;
+lambda = opts(1);
+alpha0 = 1/max((eig(AtA))); % 3.3888e-04
+maxIter = 700;
+tol = 1e-6;
+x = x0;
+
+%continuation trick
+while pseudomu >= mu
+    alpha = alpha0; %
+    iter = 1;
+    grad = ones(n,1);
+    while norm(grad) > tol && iter < maxIter
+        grad = AtA * x - Atb + pseudomu * grad_smooth(x, lambda);
+        x = x - alpha * grad;
+        if norm(x0 - x) < tol
+            break
+        end
+        iter = iter + 1;
+    end
+    pseudomu = pseudomu / 10;
+end
+out = 0.5 * sum_square(A*x-b) + mu * norm(x, 1);
+end
+
+function ret = grad_smooth(x, lambda)
+mask = abs(x) < lambda;
+x(mask) = x(mask) / lambda;
+x(~mask) = sign(x(~mask));
+ret = x;
+end
+\end{lstlisting}
+
+\section{Solve the problem using fast gradient method for the smoothed primal problem}
+Based on the former section, we use a respective accelerating algorithm of the smoothed method, the code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, out] = l1_fast_grad_smooth(x0, A, b, mu, opts)
+% use smooth() to replace 1-norm
+% smooth(x) = x^2/(2*lambda) if |x|<lambda
+%           = |x|-lambda/2   if |x|>=lambda
+[n, ~] = size(x0);
+AtA = A' * A;
+Atb = A' * b;
+pseudomu = 10000*mu;
+lambda = opts(1);
+alpha0 = 1/max((eig(AtA))); %
+maxIter = 90;
+tol = 1e-6;
+x = x0;
+
+%continuation trick
+while pseudomu >= mu
+    alpha = alpha0; %
+    iter = 0;
+    grad = ones(n,1);
+    v = x;
+    while norm(grad) > tol && iter < maxIter        
+        if mod(iter, 200) == 0 
+            alpha = alpha * 0.8; 
+        end
+
+        x_old = x;
+        theta = 2/(iter + 1);
+        y = (1 - theta)*x + theta*v;
+        grad = AtA * y - Atb + pseudomu * grad_smooth(y, lambda);
+        x = y - alpha*grad;
+        v = x + (1/theta)*(x - x_old);
+          
+        iter = iter + 1;
+    end
+    pseudomu = pseudomu / 10;
+end
+out = 0.5 * sum_square(A*x-b) + mu * norm(x, 1);
+end
+
+function ret = grad_smooth(x, lambda)
+mask = abs(x) < lambda;
+x(mask) = x(mask) / lambda;
+x(~mask) = sign(x(~mask));
+ret = x;
+end
+\end{lstlisting}
+
+\section{Solve the problem with proximal gradient method for the primal problem}
+The proximal operator for l1 norm is:
+\\
+\\
+ $h(x)=\|x\|_{1}$,\quad $prox_{h}(x)_{i}=
+  \left\{
+    \begin{aligned}
+      x_{i}-1 &\quad x_{i}>1\\
+      0 &\quad -1\leq x_{i}\leq1\\
+      x_{i}+1 &\quad x_{i}<-1
+    \end{aligned}
+  \right.$
+\\
+
+For an optimization problem of 
+\begin{equation}
+  \min_{x} f(x)=g(x)+h(x),
+\end{equation}
+the proximal gradient method is:
+\begin{equation}
+  x\gets prox_{t h}(x-t\nabla g(x))
+\end{equation}
+The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, out] = l1_proximal_grad(x0, A, b, mu, opts)
+AtA = A' * A;
+Atb = A' * b;
+pseudomu = 10000*mu;
+alpha0 = 1/max((eig(AtA)));
+maxIter = 425;
+x = x0;
+
+proximal = @(x, t) sign(x).*max(abs(x) - t, 0);
+
+%continuation trick
+while pseudomu >= mu
+    alpha = alpha0;
+    iter = 1;
+    while iter < maxIter
+        grad = AtA * x - Atb;
+        x = x - alpha * grad;
+        x = proximal(x, alpha*pseudomu);
+               
+        iter = iter + 1;
+    end
+    pseudomu = pseudomu / 10;
+end
+out = 0.5 * sum_square(A*x-b) + mu * norm(x, 1);
+end
+\end{lstlisting}
+
+\section{Solve the problem with fast proximal gradient method for the primal problem (FISTA)}
+The algorithm for FISTA is:\\
+\begin{algorithm}[H]
+  \SetAlgoNoLine
+  \caption{Fast Proximal Gradient Method} 
+  \KwIn{Initial vector $x_0$,tolerance error $\epsilon$ and initial learning rate $\alpha_{0}$} 
+  \KwOut{solution $x$} 
+  initializing velocity $v_{0}:=x_{0}$\\
+  \While{ $k<N$} 
+  { 
+  $\theta_k=\frac{2}{k+1}$\\  
+  $y=(1-\theta_{k})x_{k-1}+\theta_{k}v_{k-1}$\\
+  $x_{k}:=prox_{\alpha_{k}h}\left(x_{k-1}-\alpha_{k}\nabla g(x_{k-1})\right)$\\
+  $v_{k}=x_{k-1}+\frac{1}{\theta_{k}}(x_{k}-x_{k-1})$\\
+  $k:=k+1$
+  }
+  return $x=x_{k}$\; 
+\end{algorithm}
+The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, out] = l1_fast_proximal_grad(x0, A, b, mu, opts)
+AtA = A' * A;
+Atb = A' * b;
+pseudomu = 10000*mu;
+alpha0 = 1/max((eig(AtA))); 
+maxIter = 100;
+x = x0;
+
+proximal = @(x, t) sign(x).*max(abs(x) - t, 0);
+
+%continuation trick
+while pseudomu >= mu
+    alpha = alpha0;
+    iter = 0;
+    v = x;
+    while iter < maxIter
+        x_old = x;
+        theta = 2/(iter + 1);
+        y = (1 - theta)*x + theta*v;
+        grad = AtA * y - Atb;
+        x = proximal(y - alpha * grad, alpha*pseudomu);
+        v = x + (1/theta)*(x - x_old);
+        
+        iter = iter + 1;
+    end
+    pseudomu = pseudomu / 10;
+end
+out = 0.5 * sum_square(A*x-b) + mu * norm(x, 1);
+end
+\end{lstlisting}
+
+\section{Numerical results and interpretations}
+We can see the cpu time, the optimal value and error with cvx mosek in the tabluation:
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{c|ccc}
+  \hline
+  Method&cpu time/s&error with cvx-mosek&optimal value\\
+  \hline
+  cvx-call-mosek&0.98&0.00e+00&7.2844399533e-02\\
+  smooth gradient&0.82&3.86e-6&7.2844322774e-02\\
+  fast smooth gradient&0.17&3.60e-6&7.2844349700e-02\\
+  proximal gradient&0.49&3.04e-6&7.2844266059e-02\\
+  fast proximal gradient&0.17&2.82e-6&7.2844266584e-02\\
+  \hline
+  \end{tabular}
+\end{table}
+It's obvious that the FISTA is the strongest algorithm among these. With nestorov acceleration and proximal iteration, it achieves amazing effects. Also we can notice that methods with acceleration, which are two order algorithms, are much faster than their original algorithm, which are one order algorithms.
+
+\end{document}  

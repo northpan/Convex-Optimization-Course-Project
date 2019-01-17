@@ -1,0 +1,289 @@
+\documentclass[11pt, oneside]{article}   	% use "amsart" instead of "article" for AMSLaTeX format
+\usepackage{geometry}                		% See geometry.pdf to learn the layout options. There are lots.
+\geometry{letterpaper}                   		% ... or a4paper or a5paper or ... 
+%\geometry{landscape}                		% Activate for rotated page geometry
+%\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}				% Use pdf, png, jpg, or eps§ with pdflatex; use eps in DVI mode
+								% TeX will automatically convert eps --> pdf in pdflatex	
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage[linesnumbered,boxed,ruled,commentsnumbered]{algorithm2e}
+\usepackage{listings}
+%SetFonts
+
+%SetFonts
+
+
+\title{Convex Optimization Homework 5, Assignment 3}
+\author{Dinghuai Zhang, School of Mathematical Sciences, 1600013525}
+\date{}							% Activate to display a given date or no date
+
+\begin{document}
+\maketitle
+\section{Problem Settings}
+\begin{equation}
+\min_x \frac{1}{2}\Vert Ax-b\Vert^2_2+\mu\Vert x\Vert_1
+\end{equation}
+It's a standard LASSO problem without constraints.
+\subsection{Data Building}
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+n = 1024;
+m = 512;
+A = randn(m,n);
+u = sprandn(n,1,0.1);
+b = A*u;
+mu = 1e-3;
+x0 = rand(n,1);
+\end{lstlisting}
+
+\section{Solve the dual problem using Augmented Lagrangian method}
+The dual problem of lasso is:
+\begin{align}
+\min & -b^Ty+\frac{1}{2}||y||^2_2 \\
+s.t. & ||A^Ty||_{\infty}\le \mu
+\end{align}
+which can be formulated as:
+\begin{align}
+\min &\ f(y) = -b^Ty+\frac{1}{2}||y||^2_2 + \textrm{I}_{\{||z||_{\infty}\le\mu\}}\\
+s.t. &  \ z = A^Ty
+\end{align}
+
+Impose augmented lagrangian method to this dual problem we solve 
+\begin{align}
+\left( y ^ { + } , z^ { + } \right) =& \ \underset { y , z } { \operatorname { argmin } } \  -b^Ty+\frac{1}{2}||y||^2_2 +x^T( A^Ty-z ) + \frac { \beta} { 2 } || A^Ty-z || ^ { 2 } _2\\
+=& \ \underset { y , z } { \operatorname { argmin } } \  -b^Ty+\frac{1}{2}||y||^2_2 + \frac { \beta} { 2 } || (A^Ty+\frac{x}{\beta})-z || ^ { 2 } _2\\
+\text { s.t. } & \ ||z||_{\infty}\le\mu
+\end{align}
+with:\\
+\begin{algorithm}[H]
+  \SetAlgoNoLine
+  \caption{Augmented Lagrangian method for the dual problem} 
+  \KwIn{$\gamma, \beta$, $y$, $x$, $N$, $z$} 
+  \KwOut{solution $f(y)$} 
+  initializing $k = 1$\\
+  \While{ $k<N$} 
+  {  
+  $y\gets \underset { y } { \operatorname { argmin } } \{-b^Ty+\frac{1}{2}||y||^2_2 +   \frac{\beta}{2}|| (A^Ty+\frac{x}{\beta}) - \phi(A^Ty+\frac{x}{\beta})||^2_2\}$\\
+  $z \gets \phi(A^Ty+\frac{x}{\beta})$\\
+  $ x\gets x - \gamma (A^Ty-z)$\\
+   $k\gets k+1$
+  }
+  return $f(y)$
+\end{algorithm}
+where $(\phi ( u ))_i = \left\{ \begin{array} { l l } { \mu } & { u _ { i } \geqslant \mu } \\ { u _ { i } } & { \text { otherwise } } \\ { - \mu } & { u _ { i } \leqslant - \mu } \end{array} \right.$ 
+is the projection on a $\infty$-norm ball.\\
+(It's easy to see that $\psi(u)=u-\phi(u)$ is soft-threshholding.)
+
+For the $y$-sub problem, we can simply do gradient descent (or newton method), the gradient of $y$ is grad $= y - b + \beta A((A^Ty+\frac{x}{\beta}) - \phi(A^Ty+\frac{x}{\beta}))$, so we simply do $y\gets y - 0.1*\textrm{grad}$.
+ 
+The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, out] = l1_auglagrange_dual(x0, A, b, mu, opts)
+[m, n] = size(A);
+pseudomu = 10000*mu;
+beta = opts(1);
+gamma = opts(2);
+maxIter1 = opts(3);
+maxIter2 = opts(4);
+tol = 1e-6;
+
+x = zeros(n, 1);
+y = zeros(m, 1);
+
+%continuation trick
+while pseudomu >= mu     
+    iter1 = 1;
+    while iter1 < maxIter1
+        % y sub-problem: gradient descent       
+        iter2 = 1;
+        while iter2 < maxIter2
+            temp = softThreshold(A'*y+x/beta, pseudomu);
+            grad = y - b + beta*A*temp;
+            y = y - 0.1 * grad;
+
+            iter2 = iter2 + 1;
+         end
+        
+        temp=x/beta+A'*y;
+        z = phi(temp, pseudomu); 
+        x = x + gamma*(A'*y-z);
+                
+        iter1 = iter1 + 1;
+    end
+pseudomu = pseudomu / 10;
+end
+out = 0.5 * sum_square(A*x-b) + mu * norm(x, 1);
+end
+
+function [x] = softThreshold(x, mu)
+    x = sign(x) .* max(abs(x) - mu, 0);
+end
+
+function ret = phi(input, mu)
+input = min(input, mu);
+input = max(input, -mu);
+ret = input;
+end
+\end{lstlisting}
+
+\section{Solve the dual problem using Alternating direction method of multipliers}
+The problem is still
+\begin{align}
+\min &\ f(y) = -b^Ty+\frac{1}{2}||y||^2_2 + \textrm{I}_{\{||z||_{\infty}\le\mu\}}\\
+s.t. &  \ z = A^Ty
+\end{align}
+In every iteration:
+\begin{align}
+y = &\ \underset { y } { \operatorname { argmin } } -b^Ty+\frac{1}{2}||y||^2_2+\textrm{I}_{\{||z||_{\infty}\le\mu\}} + \frac{\beta}{2}|| (A^Ty+\frac{x}{\beta}) - z||^2_2\\
+= & \ (I + \beta AA^T)^{-1}(\beta Az+b-Ax)\\
+z =&\  \underset { z} { \operatorname { argmin } } -b^Ty+\frac{1}{2}||y||^2_2 +\textrm{I}_{\{||z||_{\infty}\le\mu\}}+ \frac{\beta}{2}|| (A^Ty+\frac{x}{\beta}) - z||^2_2\\
+= &\ \phi(A^Ty+\frac{x}{\beta})\\
+x = & \ x + \gamma(A^Ty-z)
+\end{align}
+
+\begin{algorithm}[H]
+  \SetAlgoNoLine
+  \caption{Augmenteddirection method of multipliers for the dual problem} 
+  \KwIn{$\gamma, \beta$, $y$, $x$, $N$, $z$} 
+  \KwOut{solution $f(y)$} 
+  initializing $k = 1$\\
+  \While{ $k<N$} 
+  {  
+  $y\gets  (I + \beta AA^T)^{-1}(\beta Az+b-Ax)$\\
+  
+  $z \gets  \phi(A^Ty+\frac{x}{\beta})$\\
+  $ x\gets x + \gamma (A^Ty-z)$\\
+   $k\gets k+1$
+  }
+  return $f(y)$
+\end{algorithm}
+
+The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, out] = l1_admm_dual(x0, A, b, mu, opts)
+[m, n] = size(A);
+pseudomu = 10000*mu;
+beta = opts(1);
+gamma = opts(2);
+maxIter = opts(3);
+inver = inv(beta*(A*A') + eye(m));
+x = zeros(n, 1);
+z = zeros(n, 1);
+
+
+while pseudomu >= mu
+     
+    iter = 0;
+    
+    while iter < maxIter                
+        y = inver * (beta*A*z + b - A*x);
+        z = phi(A'*y + x/beta, pseudomu);
+        x = x + gamma*(A'*y-z); 
+
+        iter = iter + 1;
+    end
+    pseudomu = pseudomu / 10;
+end
+out = 0.5 * sum_square(A*x-b) + mu * norm(x, 1);
+end
+
+function ret = phi(input, mu)
+input = min(input, mu);
+input = max(input, -mu);
+ret = input;
+end
+\end{lstlisting}
+
+\section{Solve the dual problem using Alternating direction method of multipliers with linearization}
+Reformulate lasso as:
+\begin{align}
+\min &\ \frac{1}{2}\Vert Ax-b\Vert^2_2+\mu\Vert z\Vert_1 \\
+s.t. & \ x - z =0
+\end{align}
+The augmented lagrangian is :
+\begin{equation}
+\frac{1}{2}\Vert Ax-b\Vert^2_2+\mu\Vert z\Vert_1  + \frac{\beta}{2}||x-z+u||^2_2 
+\end{equation}
+So the admm iteration step is:
+\begin{align}
+x \gets & (A^TA+\beta I)^{-1}(A^Tb+\beta(z - u))\\
+z \gets & \textrm{soft-thresholding}(x+u, \frac{\mu}{\beta})\\
+u \gets & u + \gamma(x -z )
+\end{align}
+If we adopt linearization, the update for $x$ is changed to:
+\begin{align}
+x \gets &  \  { x } - c \left( \nabla f \left( { x }  \right) + \beta   \left(  x-z+y\right) \right)\\
+ = &\ x - c\left((A^TA+\beta I)x+\beta(u-z)-A^Tb\right)
+\end{align}
+
+The code is showed as follows:
+\lstset{
+ frame=single, 
+breaklines=true,
+language=MATLAB,
+ }
+\begin{lstlisting}
+function [x, out] = l1_admm_primal_linear(x0, A, b, mu, opts)
+[m, n] = size(A);
+pseudomu = 10000*mu;
+beta = opts(1);
+gamma = opts(2);
+maxIter = opts(3);
+c = opts(4);
+tol = 1e-6; 
+
+x = x0;
+u = randn(n, 1);
+Q = inv(A'*A+beta*eye(n));
+Atb = A' * b;
+
+thresh = @(x,th) sign(x).* max(abs(x) - th,0);
+
+while pseudomu >= mu
+    for iter = 1:maxIter
+        z = thresh(x + u, mu/beta);
+        x = x - c*(AtA*x + beta*x + beta*(u-z) - Atb);
+        u = u + gamma * (x - z); 
+    end
+    pseudomu = pseudomu / 10;  
+end
+out = 0.5 * sum_square(A*x-b) + mu * norm(x, 1);
+end
+
+\end{lstlisting}
+
+\section{Numerical results and interpretations}
+We can see the cpu time, the optimal value and error with cvx mosek in the tabluation:
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{c|ccc}
+  \hline
+  Method&cpu time/s&error with cvx-mosek&optimal value\\
+  \hline
+  cvx-call-mosek&0.98&0.00e+00&7.2844266239e-02\\
+  auglagrange dual&0.19&2.97e-06&7.2844322774e-02\\
+  admm dual&0.17&2.75e-06&7.2844268531e-02\\
+  admm primal linear&0.65&3.04e-06&7.2844295011e-02\\
+  \hline
+  \end{tabular}
+\end{table}
+
+Alternative methods can achieve good results compared to cvx. However when implemented with linearization, the efficiency will be a little worse because of the approximation.
+
+\end{document}  
